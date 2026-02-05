@@ -35,9 +35,11 @@ export async function GET(
     .eq("tournament_id", id)
     .order("player_name", { ascending: true });
 
-  const ownerUsername = Array.isArray(tournament.owner)
-    ? tournament.owner[0]?.username
-    : tournament.owner?.username;
+  const ownerRef = (tournament as { owner?: { username?: string }[] | { username?: string } })
+    .owner;
+  const ownerUsername = Array.isArray(ownerRef)
+    ? ownerRef[0]?.username
+    : ownerRef?.username;
 
   const result: Tournament = {
     id: tournament.id,
