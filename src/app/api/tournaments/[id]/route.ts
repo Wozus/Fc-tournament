@@ -18,7 +18,7 @@ export async function GET(
   const { id } = await params;
   const { data: tournament, error } = await supabase
     .from("tournaments")
-    .select("id, name, owner_id, created_at, owner:app_users(username)")
+    .select("id, name, owner_id, created_at, owner:app_users!inner(username)")
     .eq("id", id)
     .single();
 
@@ -35,11 +35,15 @@ export async function GET(
     .eq("tournament_id", id)
     .order("player_name", { ascending: true });
 
+  const ownerUsername = Array.isArray(tournament.owner)
+    ? tournament.owner[0]?.username
+    : tournament.owner?.username;
+
   const result: Tournament = {
     id: tournament.id,
     name: tournament.name,
     ownerId: tournament.owner_id,
-    ownerUsername: tournament.owner?.username ?? "",
+    ownerUsername: ownerUsername ?? "",
     players: (players ?? []).map((p: any) => p.player_name),
     createdAt: tournament.created_at ?? undefined,
   };
