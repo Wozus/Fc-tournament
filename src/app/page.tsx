@@ -1,65 +1,185 @@
-import Image from "next/image";
+"use client";
 
-export default function Home() {
+import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
+import type { TournamentListItem } from "@/lib/types";
+
+function cls(...xs: Array<string | false | undefined>) {
+  return xs.filter(Boolean).join(" ");
+}
+
+export default function Page() {
+  const [items, setItems] = useState<TournamentListItem[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
+  const [q, setQ] = useState<string>("");
+  const [page, setPage] = useState<number>(1);
+  const [total, setTotal] = useState<number>(0);
+  const pageSize = 12;
+
+  const [user, setUser] = useState<{ id: string; username: string } | null>(
+    null
+  );
+
+  const load = async (query: string, pageNo: number) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const params = new URLSearchParams({
+        q: query,
+        page: String(pageNo),
+        pageSize: String(pageSize),
+      });
+      const res = await fetch(`/api/tournaments?${params.toString()}`, {
+        cache: "no-store",
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.error ?? "Nie udało się pobrać.");
+      setItems(Array.isArray(json?.items) ? json.items : []);
+      setTotal(Number(json?.total) || 0);
+    } catch (e: any) {
+      setError(e?.message ?? "Nie udało się pobrać.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    load(q, page);
+  }, [q, page]);
+
+  useEffect(() => {
+    fetch("/api/auth/me", { cache: "no-store" })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((json) => setUser(json?.user ?? null))
+      .catch(() => setUser(null));
+  }, []);
+
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+
+  const pageLabels = useMemo(() => {
+    if (totalPages <= 1) return [];
+    const labels: string[] = [];
+    for (let i = 1; i <= totalPages; i += 1) labels.push(`Strona ${i}`);
+    return labels;
+  }, [totalPages]);
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
+    <div className="wrap">
+      <header className="header">
+        <h1>Turnieje</h1>
+        <p className="sub">
+          Wszystkie turnieje są publiczne. Zaloguj się, aby tworzyć nowe i
+          dodawać mecze.
+        </p>
+      </header>
+
+      <section className="panel">
+        <div className="row">
+          <div className="controls">
+            {user ? (
+              <Link className="btnPrimary" href="/tournaments/new">
+                Nowy turniej
+              </Link>
+            ) : (
+              <>
+                <Link className="btnPrimary" href="/login">
+                  Zaloguj się
+                </Link>
+                <Link className="btnGhost" href="/register">
+                  Rejestracja
+                </Link>
+              </>
+            )}
+            {user && (
+              <button
+                type="button"
+                className="btnGhost"
+                onClick={async () => {
+                  await fetch("/api/auth/logout", { method: "POST" });
+                  setUser(null);
+                }}
+              >
+                Wyloguj
+              </button>
+            )}
+          </div>
+
+          <div className="controls">
+            <input
+              value={q}
+              onChange={(e) => {
+                setQ(e.target.value);
+                setPage(1);
+              }}
+              placeholder="Szukaj po nazwie turnieju lub adminie…"
             />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+          </div>
         </div>
-      </main>
+
+        {loading && <div className="muted">Ładowanie turniejów…</div>}
+        {error && <div className="error">{error}</div>}
+      </section>
+
+      {!loading && items.length === 0 && !error && (
+        <section className="panel">
+          <div className="muted">Brak turniejów.</div>
+        </section>
+      )}
+
+      {items.length > 0 && (
+        <section className="grid">
+          {items.map((t) => (
+            <Link key={t.id} className="tile tileLink" href={`/tournaments/${t.id}`}>
+              <div className="tileTop">
+                <div className="tileNo">{t.name}</div>
+                <div className={cls("pill", "pillOn")}>{t.ownerUsername}</div>
+              </div>
+              <div className="muted tiny">Kliknij, aby zobaczyć mecze</div>
+            </Link>
+          ))}
+        </section>
+      )}
+
+      {totalPages > 1 && (
+        <section className="pager">
+          <div className="pagerTop">
+            <div className="pagerTitle">
+              Strona {page} / {totalPages}
+            </div>
+            <div className="pagerNav">
+              <button
+                type="button"
+                className="pagerBtn"
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={page === 1}
+              >
+                Wstecz
+              </button>
+              <button
+                type="button"
+                className="pagerBtn"
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                disabled={page === totalPages}
+              >
+                Dalej
+              </button>
+            </div>
+          </div>
+          <div className="pagerList">
+            {pageLabels.map((label, idx) => (
+              <button
+                key={label}
+                type="button"
+                className={cls("pagerItem", page === idx + 1 && "pagerOn")}
+                onClick={() => setPage(idx + 1)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
     </div>
   );
 }
