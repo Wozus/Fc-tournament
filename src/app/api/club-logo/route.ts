@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import sharp from "sharp";
 import { getSupabaseAdmin } from "@/lib/serverSupabase";
-import localLogos from "@/data/club-logos.json";
 
 export const runtime = "nodejs";
 
@@ -37,10 +36,6 @@ export async function GET(req: Request) {
 
   const key = normalize(name);
   const apiName = NAME_ALIASES[key] ?? name;
-  const localUrl = (localLogos as Record<string, string>)[key];
-  if (localUrl) {
-    return NextResponse.json({ url: localUrl, source: "local" });
-  }
 
   const supabase = getSupabaseAdmin();
   if (!supabase) {
