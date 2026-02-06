@@ -2,7 +2,8 @@ export type PlayerStats = {
   goals: number;
   crossbars: number;
   blackPosts: number;
-  points: number;
+  club?: string;
+  host?: boolean;
 };
 
 export type Match = {
@@ -10,6 +11,9 @@ export type Match = {
   tournamentId?: string;
   no: number;
   winner?: string | null;
+  specialText?: string | null;
+  specialPlayers?: string[];
+  pointsMultiplier?: number;
   players: Record<string, PlayerStats>;
   createdAt?: string;
 };
@@ -17,6 +21,9 @@ export type Match = {
 export type MatchInput = {
   no: number;
   winner?: string | null;
+  specialText?: string | null;
+  specialPlayers?: string[];
+  pointsMultiplier?: number;
   players: Record<string, PlayerStats>;
 };
 

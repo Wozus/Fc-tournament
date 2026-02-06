@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
-import type { PlayerStats, Tournament } from "@/lib/types";
+import type { Match, PlayerStats, Tournament } from "@/lib/types";
 
 type PlayerRow = {
   name: string;
@@ -20,21 +20,22 @@ function toNumber(value: string) {
   return Number.isFinite(n) ? n : 0;
 }
 
-export default function AddMatchPage({
+export default function EditMatchPage({
   params,
 }: {
-  params: Promise<{ id: string }>;
+  params: Promise<{ id: string; matchId: string }>;
 }) {
   const router = useRouter();
+  const [tournamentId, setTournamentId] = useState<string | null>(null);
+  const [matchId, setMatchId] = useState<string | null>(null);
   const [tournament, setTournament] = useState<Tournament | null>(null);
+  const [match, setMatch] = useState<Match | null>(null);
   const [user, setUser] = useState<{ id: string; username: string } | null>(
     null
   );
-  const [loadingTournament, setLoadingTournament] = useState<boolean>(true);
-  const [loading, setLoading] = useState<boolean>(false);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [saving, setSaving] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
-  const [tournamentId, setTournamentId] = useState<string | null>(null);
 
   const [matchNo, setMatchNo] = useState<string>("");
   const [winner, setWinner] = useState<string>("");
@@ -42,6 +43,7 @@ export default function AddMatchPage({
   const [specialText, setSpecialText] = useState<string>("");
   const [specialPlayers, setSpecialPlayers] = useState<string[]>([]);
   const [pointsMultiplier, setPointsMultiplier] = useState<string>("1");
+
   const hostCount = useMemo(
     () => rows.filter((row) => row.host).length,
     [rows]
@@ -52,10 +54,14 @@ export default function AddMatchPage({
     let mounted = true;
     Promise.resolve(params)
       .then((p) => {
-        if (mounted) setTournamentId(p.id);
+        if (!mounted) return;
+        setTournamentId(p.id);
+        setMatchId(p.matchId);
       })
       .catch(() => {
-        if (mounted) setTournamentId(null);
+        if (!mounted) return;
+        setTournamentId(null);
+        setMatchId(null);
       });
     return () => {
       mounted = false;
@@ -63,75 +69,95 @@ export default function AddMatchPage({
   }, [params]);
 
   useEffect(() => {
-    if (!tournamentId) return;
-    setLoadingTournament(true);
-    fetch(`/api/tournaments/${tournamentId}`, { cache: "no-store" })
-      .then(async (res) => {
-        if (!res.ok) {
-          const json = await res.json().catch(() => null);
+    if (!tournamentId || !matchId) return;
+    setLoading(true);
+    setError(null);
+
+    Promise.all([
+      fetch(`/api/tournaments/${tournamentId}`, { cache: "no-store" }),
+      fetch(`/api/tournaments/${tournamentId}/matches/${matchId}`, {
+        cache: "no-store",
+      }),
+      fetch("/api/auth/me", { cache: "no-store" }),
+    ])
+      .then(async ([tRes, mRes, uRes]) => {
+        if (!tRes.ok) {
+          const json = await tRes.json().catch(() => null);
           throw new Error(json?.error ?? "Nie znaleziono turnieju.");
         }
-        return res.json();
+        if (!mRes.ok) {
+          const json = await mRes.json().catch(() => null);
+          throw new Error(json?.error ?? "Nie znaleziono meczu.");
+        }
+        const tJson = await tRes.json();
+        const mJson = await mRes.json();
+        const uJson = uRes.ok ? await uRes.json() : null;
+        return { tJson, mJson, uJson };
       })
-      .then((json) => {
-        setTournament(json?.tournament ?? null);
-        const players = Array.isArray(json?.tournament?.players)
-          ? json.tournament.players
+      .then(({ tJson, mJson, uJson }) => {
+        const t = tJson?.tournament ?? null;
+        const m = mJson?.match ?? null;
+        setTournament(t);
+        setMatch(m);
+        setUser(uJson?.user ?? null);
+
+        const playersList: string[] = Array.isArray(t?.players)
+          ? t.players
           : [];
-        setRows(
-          players.map((name: string, idx: number) => ({
+        const matchPlayers = m?.players ?? {};
+
+        const rowsData = playersList.map((name) => {
+          const s = matchPlayers[name] ?? {};
+          return {
             name,
-            goals: "",
-            crossbars: "",
-            blackPosts: "",
-            club: "",
-            host: idx === 0,
-          }))
+            goals: String(s.goals ?? 0),
+            crossbars: String(s.crossbars ?? 0),
+            blackPosts: String(s.blackPosts ?? 0),
+            club: s.club ?? "",
+            host: Boolean(s.host),
+          };
+        });
+        if (rowsData.length > 0 && rowsData.every((r) => !r.host)) {
+          rowsData[0].host = true;
+        }
+
+        setRows(rowsData);
+        setMatchNo(String(m?.no ?? ""));
+        setWinner(m?.winner ?? "");
+        setSpecialText(m?.specialText ?? "");
+        setSpecialPlayers(
+          Array.isArray(m?.specialPlayers) ? m.specialPlayers : []
+        );
+        const raw =
+          typeof m?.pointsMultiplier === "number"
+            ? m.pointsMultiplier
+            : m?.pointsMultiplier != null
+            ? Number(m.pointsMultiplier)
+            : 1;
+        setPointsMultiplier(
+          Number.isFinite(raw) && raw > 0 ? String(raw) : "1"
         );
       })
       .catch((err) => {
-        setError(err?.message ?? "Nie znaleziono turnieju.");
+        setError(err?.message ?? "Nie udało się wczytać meczu.");
         setTournament(null);
+        setMatch(null);
       })
-      .finally(() => setLoadingTournament(false));
+      .finally(() => setLoading(false));
+  }, [tournamentId, matchId]);
 
-    fetch("/api/auth/me", { cache: "no-store" })
-      .then((res) => (res.ok ? res.json() : null))
-      .then((json) => setUser(json?.user ?? null))
-      .catch(() => setUser(null));
-  }, [tournamentId]);
-
-  useEffect(() => {
-    if (!tournamentId) return;
-    fetch(`/api/tournaments/${tournamentId}/matches/next`, {
-      cache: "no-store",
-    })
-      .then((res) => (res.ok ? res.json() : null))
-      .then((json) => {
-        const next = Number(json?.next);
-        if (Number.isFinite(next) && next > 0) {
-          setMatchNo(String(next));
-        }
-      })
-      .catch(() => null);
-  }, [tournamentId]);
-
-  const isOwner = useMemo(() => {
-    if (!user || !tournament) return false;
-    return user.id === tournament.ownerId;
-  }, [user, tournament]);
+  const isOwner = user && tournament ? user.id === tournament.ownerId : false;
 
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError(null);
-    setSuccess(null);
 
+    if (!tournamentId || !matchId) return;
     const no = Number(matchNo);
     if (!Number.isFinite(no) || no <= 0) {
-      setError("Podaj poprawny numer meczu.");
+      setError("Nieprawidłowy numer meczu.");
       return;
     }
-
     const multiplierValue = pointsMultiplier.trim()
       ? toNumber(pointsMultiplier)
       : 1;
@@ -157,8 +183,7 @@ export default function AddMatchPage({
       setError("Dodaj przynajmniej jednego gracza.");
       return;
     }
-    const hostCount = Object.values(players).filter((p) => p.host).length;
-    if (hostCount !== 1) {
+    if (Object.values(players).filter((p) => p.host).length !== 1) {
       setError("Wybierz dokładnie jednego gospodarza.");
       return;
     }
@@ -168,79 +193,49 @@ export default function AddMatchPage({
     }
     const validSpecialPlayers = specialPlayers.filter((name) => players[name]);
 
-    setLoading(true);
+    setSaving(true);
     try {
-      if (!tournamentId) {
-        throw new Error("Brak ID turnieju.");
-      }
-      const res = await fetch(`/api/tournaments/${tournamentId}/matches`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        credentials: "same-origin",
-        cache: "no-store",
-        body: JSON.stringify({
-          no,
-          winner: winner.trim() || null,
-          specialText: specialText.trim() || null,
-          specialPlayers: validSpecialPlayers,
-          pointsMultiplier: multiplierValue,
-          players,
-        }),
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json?.error ?? "Nie udało się zapisać meczu.");
-
-      setSuccess("Mecz zapisany.");
-      setMatchNo("");
-      setWinner("");
-      setSpecialText("");
-      setSpecialPlayers([]);
-      setPointsMultiplier("1");
-      setRows((prev) =>
-        prev.map((row) => ({
-          ...row,
-          goals: "",
-          crossbars: "",
-          blackPosts: "",
-          club: "",
-          host: false,
-        }))
+      const res = await fetch(
+        `/api/tournaments/${tournamentId}/matches/${matchId}`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify({
+            no,
+            winner: winner.trim() || null,
+            specialText: specialText.trim() || null,
+            specialPlayers: validSpecialPlayers,
+            pointsMultiplier: multiplierValue,
+            players,
+          }),
+        }
       );
-      fetch(`/api/tournaments/${tournamentId}/matches/next`, {
-        cache: "no-store",
-      })
-        .then((res) => (res.ok ? res.json() : null))
-        .then((json) => {
-          const next = Number(json?.next);
-          if (Number.isFinite(next) && next > 0) {
-            setMatchNo(String(next));
-          }
-        })
-        .catch(() => null);
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.error ?? "Nie udało się zapisać.");
       router.push(`/tournaments/${tournamentId}`);
     } catch (e: any) {
-      setError(e?.message ?? "Nie udało się zapisać meczu.");
+      setError(e?.message ?? "Nie udało się zapisać.");
     } finally {
-      setLoading(false);
+      setSaving(false);
     }
   };
 
-  if (loadingTournament) {
+  if (loading) {
     return (
       <div className="wrap">
         <section className="panel">
-          <div className="muted">Ładowanie turnieju…</div>
+          <div className="muted">Ładowanie meczu…</div>
         </section>
       </div>
     );
   }
-  if (!tournament) {
+
+  if (!tournament || !match) {
     return (
       <div className="wrap">
         <section className="panel">
-          <div className="error">{error ?? "Nie znaleziono turnieju."}</div>
+          <div className="error">{error ?? "Nie znaleziono meczu."}</div>
           <div className="actions">
             <Link className="btnGhost" href="/">
               Wróć do listy turniejów
@@ -254,45 +249,33 @@ export default function AddMatchPage({
   return (
     <div className="wrap">
       <header className="header">
-        <h1>Dodaj mecz — {tournament.name}</h1>
-        <p className="sub">Uzupełnij wynik dla wszystkich graczy turnieju.</p>
+        <h1>Edycja meczu — {tournament.name}</h1>
+        <p className="sub">Zmień wynik i zapisz poprawki.</p>
       </header>
 
       <section className="panel">
         <div className="row">
-          <Link className="btnGhost" href={`/tournaments/${tournamentId ?? ""}`}>
+          <Link className="btnGhost" href={`/tournaments/${tournamentId}`}>
             Wróć do turnieju
           </Link>
         </div>
       </section>
 
-      {user && !isOwner && (
+      {!isOwner && (
         <section className="panel">
           <div className="muted">
-            Tylko organizator może dodawać mecze.
+            Tylko organizator może edytować mecze.
           </div>
         </section>
       )}
 
-      {!user && (
-        <section className="panel">
-          <div className="muted">Musisz być zalogowany.</div>
-          <div className="actions">
-            <Link className="btnPrimary" href="/login">
-              Zaloguj się
-            </Link>
-          </div>
-        </section>
-      )}
-
-      {user && isOwner && (
+      {isOwner && (
         <form className="panel" onSubmit={onSubmit}>
           <div className="formGrid">
             <label className="field">
-              <span>Numer meczu (auto)</span>
+              <span>Numer meczu</span>
               <input
                 type="number"
-                inputMode="numeric"
                 value={matchNo}
                 readOnly
                 placeholder="np. 14"
@@ -452,14 +435,13 @@ export default function AddMatchPage({
             <button
               type="submit"
               className="btnPrimary"
-              disabled={loading || hostCount !== 1}
+              disabled={saving || hostCount !== 1}
             >
-              {loading ? "Zapisywanie…" : "Zapisz mecz"}
+              {saving ? "Zapisywanie…" : "Zapisz zmiany"}
             </button>
           </div>
 
           {error && <div className="error">{error}</div>}
-          {success && <div className="success">{success}</div>}
         </form>
       )}
     </div>

@@ -201,7 +201,7 @@ input:disabled {
 .grid {
   margin-top: 16px;
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));
+  grid-template-columns: 1fr;
   gap: 12px;
 }
 
@@ -237,6 +237,24 @@ input:disabled {
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+.specialPlayers {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.specialList {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 8px;
+}
+.specialItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #c9d0e3;
+  font-size: 13px;
 }
 .playerRow {
   display: grid;
@@ -328,6 +346,124 @@ input:disabled {
   gap: 10px;
   margin-bottom: 10px;
 }
+.matchMain {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 6px;
+}
+.matchSide {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+}
+.matchSideRight {
+  text-align: right;
+  align-items: flex-end;
+}
+.matchName {
+  font-size: 18px;
+  font-weight: 700;
+}
+.matchClub {
+  color: #aab2c5;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+}
+.matchSideRight .matchClub {
+  justify-content: flex-end;
+}
+.matchSideRight .clubLine {
+  width: 100%;
+  justify-content: flex-start;
+  flex-direction: row-reverse;
+}
+.clubLine {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.clubLogo {
+  width: 48px;
+  height: 48px;
+  object-fit: contain;
+}
+.clubLogoPlaceholder {
+  width: 48px;
+  height: 48px;
+  border-radius: 8px;
+  background: #0b1222;
+  border: 1px solid #1d2740;
+  display: inline-block;
+}
+.matchHost {
+  font-size: 11px;
+  padding: 2px 6px;
+  border: 1px solid #2b385b;
+  border-radius: 999px;
+  color: #e6e9f2;
+}
+.matchScore {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  min-width: 90px;
+}
+.matchVs {
+  font-size: 12px;
+  color: #aab2c5;
+  letter-spacing: 1px;
+}
+.matchGoals {
+  font-size: 28px;
+  font-weight: 800;
+}
+.matchStats {
+  margin-top: 10px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  color: #aab2c5;
+  font-size: 13px;
+  padding: 4px 6px 0;
+}
+.matchSpecial {
+  margin-top: 10px;
+  padding: 8px 10px;
+  border: 1px solid #1d2740;
+  background: #0b1222;
+  border-radius: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  font-size: 13px;
+  color: #c9d0e3;
+}
+.matchSpecialTitle {
+  font-weight: 700;
+  color: #e6e9f2;
+}
+.matchSpecialPlayers,
+.matchSpecialMultiplier {
+  color: #aab2c5;
+}
+.matchStat {
+  flex: 1;
+}
+.matchStatLeft {
+  align-self: flex-start;
+  text-align: left;
+}
+.matchStatRight {
+  align-self: flex-end;
+  text-align: right;
+}
 .tileActions {
   display: inline-flex;
   align-items: center;
@@ -375,9 +511,28 @@ input:disabled {
   color: #c9d0e3;
   font-size: 13px;
 }
+.pHost {
+  padding: 2px 6px;
+  border-radius: 999px;
+  border: 1px solid #2b385b;
+  color: #e6e9f2;
+  font-size: 11px;
+}
 .pPts {
   text-align: right;
   font-weight: 800;
+}
+.pMultiplier {
+  color: #aab2c5;
+  font-weight: 600;
+  font-size: 12px;
+}
+.hostToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #c9d0e3;
+  font-size: 12px;
 }
 
 @media (max-width: 900px) {
@@ -412,6 +567,19 @@ input:disabled {
   .tileTop {
     flex-direction: column;
     align-items: flex-start;
+  }
+  .matchMain {
+    grid-template-columns: 1fr;
+    text-align: center;
+  }
+  .matchSideRight {
+    align-items: center;
+    text-align: center;
+  }
+  .matchStats {
+    flex-direction: column;
+    gap: 6px;
+    align-items: center;
   }
   .pRow {
     grid-template-columns: 70px 1fr 56px;

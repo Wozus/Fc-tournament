@@ -21,11 +21,14 @@ function normalizePlayers(raw: MatchInput["players"]) {
     const name = nameRaw.trim();
     if (!name) continue;
     const stats = statsRaw as Partial<PlayerStats>;
+    const club =
+      typeof stats.club === "string" ? stats.club.trim() : "";
     players[name] = {
       goals: toNumber(stats.goals),
       crossbars: toNumber(stats.crossbars),
       blackPosts: toNumber(stats.blackPosts),
-      points: toNumber(stats.points),
+      club: club || undefined,
+      host: Boolean(stats.host),
     };
   }
 
@@ -47,7 +50,9 @@ export async function GET(
   const { id } = await params;
   const { data, error } = await supabase
     .from("matches")
-    .select("id, match_no, winner, players, created_at, tournament_id")
+    .select(
+      "id, match_no, winner, players, created_at, tournament_id, special_text, special_players, points_multiplier"
+    )
     .eq("tournament_id", id)
     .order("match_no", { ascending: true });
 
@@ -60,6 +65,16 @@ export async function GET(
     tournamentId: row.tournament_id,
     no: row.match_no,
     winner: row.winner ?? null,
+    specialText: row.special_text ?? null,
+    specialPlayers: Array.isArray(row.special_players)
+      ? row.special_players
+      : [],
+    pointsMultiplier:
+      typeof row.points_multiplier === "number"
+        ? row.points_multiplier
+        : row.points_multiplier
+        ? Number(row.points_multiplier)
+        : undefined,
     players: (row.players ?? {}) as Record<string, PlayerStats>,
     createdAt: row.created_at ?? undefined,
   }));
@@ -124,19 +139,43 @@ export async function POST(
     return NextResponse.json({ error: "Nieprawidłowy JSON." }, { status: 400 });
   }
 
-  const no = Number(payload?.no);
+  let no = Number(payload?.no);
   const winner = payload?.winner ? String(payload.winner).trim() : null;
+  const specialText = payload?.specialText
+    ? String(payload.specialText).trim()
+    : "";
+  const specialPlayers = Array.isArray(payload?.specialPlayers)
+    ? payload?.specialPlayers.map((p) => String(p))
+    : [];
+  const pointsMultiplierRaw =
+    payload?.pointsMultiplier != null ? Number(payload.pointsMultiplier) : 1;
+  const pointsMultiplier =
+    Number.isFinite(pointsMultiplierRaw) && pointsMultiplierRaw > 0
+      ? pointsMultiplierRaw
+      : 1;
   const players = normalizePlayers(payload?.players ?? {});
 
   if (!Number.isFinite(no) || no <= 0) {
-    return NextResponse.json(
-      { error: "Nieprawidłowy numer meczu." },
-      { status: 400 }
-    );
+    const { data: lastMatch } = await supabase
+      .from("matches")
+      .select("match_no")
+      .eq("tournament_id", tournamentId)
+      .order("match_no", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const lastNo = lastMatch?.match_no ?? 0;
+    no = lastNo + 1;
   }
   if (Object.keys(players).length === 0) {
     return NextResponse.json(
       { error: "Dodaj przynajmniej jednego gracza." },
+      { status: 400 }
+    );
+  }
+  const hostCount = Object.values(players).filter((p) => p.host).length;
+  if (hostCount !== 1) {
+    return NextResponse.json(
+      { error: "Wybierz dokładnie jednego gospodarza." },
       { status: 400 }
     );
   }
@@ -155,6 +194,15 @@ export async function POST(
       { status: 400 }
     );
   }
+  const validSpecialPlayers = specialPlayers.filter((p) =>
+    allowedPlayers.has(p)
+  );
+  if (validSpecialPlayers.length > 2) {
+    return NextResponse.json(
+      { error: "Wybierz maksymalnie 2 graczy dla cechy specjalnej." },
+      { status: 400 }
+    );
+  }
 
   const { data, error } = await supabase
     .from("matches")
@@ -163,8 +211,13 @@ export async function POST(
       match_no: Math.trunc(no),
       winner: winner || null,
       players,
+      special_text: specialText || null,
+      special_players: validSpecialPlayers,
+      points_multiplier: pointsMultiplier,
     })
-    .select("id, match_no, winner, players, created_at, tournament_id")
+    .select(
+      "id, match_no, winner, players, created_at, tournament_id, special_text, special_players, points_multiplier"
+    )
     .single();
 
   if (error) {
@@ -176,6 +229,16 @@ export async function POST(
     tournamentId: data.tournament_id,
     no: data.match_no,
     winner: data.winner ?? null,
+    specialText: data.special_text ?? null,
+    specialPlayers: Array.isArray(data.special_players)
+      ? data.special_players
+      : [],
+    pointsMultiplier:
+      typeof data.points_multiplier === "number"
+        ? data.points_multiplier
+        : data.points_multiplier
+        ? Number(data.points_multiplier)
+        : undefined,
     players: (data.players ?? {}) as Record<string, PlayerStats>,
     createdAt: data.created_at ?? undefined,
   };

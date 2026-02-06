@@ -1,11 +1,38 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Match, PlayerTotals, PlayerStats } from "@/lib/types";
 
 function cls(...xs: Array<string | false | undefined>) {
   return xs.filter(Boolean).join(" ");
+}
+
+function calcPoints(
+  stats: PlayerStats,
+  isWinner: boolean,
+  multiplier: number = 1
+) {
+  const goals = stats.goals ?? 0;
+  const crossbars = stats.crossbars ?? 0;
+  const blackPosts = stats.blackPosts ?? 0;
+  const base = goals + crossbars * 2 + blackPosts * 3 + (isWinner ? 3 : 0);
+  return base * multiplier;
+}
+
+function getPlayerMultiplier(match: Match, player: string) {
+  const raw =
+    typeof match.pointsMultiplier === "number"
+      ? match.pointsMultiplier
+      : match.pointsMultiplier != null
+      ? Number(match.pointsMultiplier)
+      : 1;
+  const multiplier = Number.isFinite(raw) ? raw : 1;
+  if (multiplier <= 1) return 1;
+  const specialPlayers = Array.isArray(match.specialPlayers)
+    ? match.specialPlayers
+    : [];
+  return specialPlayers.includes(player) ? multiplier : 1;
 }
 
 function emptyTotals(): PlayerTotals {
@@ -30,6 +57,8 @@ export default function TournamentDashboard({
   const [matches, setMatches] = useState<Match[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const [clubLogos, setClubLogos] = useState<Record<string, string>>({});
+  const requestedLogos = useRef<Set<string>>(new Set());
 
   const [winnerFilter, setWinnerFilter] = useState<string>("ALL");
   const [q, setQ] = useState<string>("");
@@ -74,6 +103,39 @@ export default function TournamentDashboard({
     loadMatches();
   }, [tournamentId]);
 
+  useEffect(() => {
+    const clubs = new Set<string>();
+    for (const m of matches) {
+      for (const s of Object.values(m.players ?? {})) {
+        if (s.club) clubs.add(s.club);
+      }
+    }
+    const pending = Array.from(clubs).filter(
+      (club) => !clubLogos[club] && !requestedLogos.current.has(club)
+    );
+    if (pending.length === 0) return;
+    pending.forEach((club) => requestedLogos.current.add(club));
+
+    Promise.all(
+      pending.map(async (club) => {
+        const res = await fetch(
+          `/api/club-logo?name=${encodeURIComponent(club)}`
+        );
+        if (!res.ok) return null;
+        const json = await res.json();
+        return json?.url ? { club, url: json.url } : null;
+      })
+    ).then((items) => {
+      const next: Record<string, string> = {};
+      for (const item of items) {
+        if (item?.club && item.url) next[item.club] = item.url;
+      }
+      if (Object.keys(next).length > 0) {
+        setClubLogos((prev) => ({ ...prev, ...next }));
+      }
+    });
+  }, [matches, clubLogos]);
+
   const allPlayers = useMemo(() => {
     if (players.length > 0) return players;
     const set = new Set<string>();
@@ -101,7 +163,11 @@ export default function TournamentDashboard({
         acc[p].goals += stats.goals;
         acc[p].crossbars += stats.crossbars;
         acc[p].blackPosts += stats.blackPosts;
-        acc[p].totalPoints += stats.points;
+        acc[p].totalPoints += calcPoints(
+          stats,
+          m.winner === p,
+          getPlayerMultiplier(m, p)
+        );
       }
     }
     return acc;
@@ -165,8 +231,8 @@ export default function TournamentDashboard({
       <header className="header">
         <h1>{tournamentName}</h1>
         <p className="sub">
-          Organizator: {ownerUsername}. Punkty są brane bezpośrednio z pola
-          „Punkty”.
+          Organizator: {ownerUsername}. Punkty: gole + 2×poprzeczki + 3×czarne
+          słupki + 3 za wygraną. Mnożnik punktów dotyczy wskazanych graczy.
         </p>
       </header>
 
@@ -306,42 +372,264 @@ export default function TournamentDashboard({
           <section className="grid">
             {pageMatches.map((m) => (
               <div key={m.id ?? m.no} className="tile">
-                <div className="tileTop">
-                  <div className="tileNo">Mecz #{m.no}</div>
-                  <div className="tileActions">
-                    <div className={cls("pill", m.winner ? "pillOn" : "")}>
-                      {m.winner ? `Zwycięzca: ${m.winner}` : "Brak zwycięzcy"}
+                {(() => {
+                  const orderedPlayers =
+                    allPlayers.length > 0
+                      ? allPlayers.filter((p) => m.players?.[p])
+                      : Object.keys(m.players ?? {});
+                  const hostEntry = Object.entries(m.players ?? {}).find(
+                    ([, s]) => (s as PlayerStats).host
+                  );
+                  const hostName = hostEntry?.[0];
+                  const specialText = m.specialText?.trim() ?? "";
+                  const specialPlayers = Array.isArray(m.specialPlayers)
+                    ? m.specialPlayers
+                    : [];
+                  const multiplierRaw =
+                    typeof m.pointsMultiplier === "number"
+                      ? m.pointsMultiplier
+                      : m.pointsMultiplier != null
+                      ? Number(m.pointsMultiplier)
+                      : 1;
+                  const pointsMultiplier = Number.isFinite(multiplierRaw)
+                    ? multiplierRaw
+                    : 1;
+                  const showSpecial =
+                    Boolean(specialText) ||
+                    specialPlayers.length > 0 ||
+                    pointsMultiplier > 1;
+                  const specialBlock = showSpecial ? (
+                    <div className="matchSpecial">
+                      {specialText && (
+                        <span className="matchSpecialTitle">
+                          {specialText}
+                        </span>
+                      )}
+                      {specialPlayers.length > 0 && (
+                        <span className="matchSpecialPlayers">
+                          Gracze: {specialPlayers.join(", ")}
+                        </span>
+                      )}
+                      {pointsMultiplier > 1 && (
+                        <span className="matchSpecialMultiplier">
+                          Mnożnik: x{pointsMultiplier}
+                        </span>
+                      )}
                     </div>
-                    {isOwner && (
-                      <button
-                        type="button"
-                        className="btnGhostRed btnSmall"
-                        onClick={() => deleteMatch(m.id)}
-                      >
-                        Usuń
-                      </button>
-                    )}
-                  </div>
-                </div>
+                  ) : null;
 
-                <div className="players">
-                  {Object.entries(m.players ?? {}).map(([p, s]) => {
-                    const isWinner = m.winner === p;
+                  if (orderedPlayers.length === 2) {
+                    const leftName = orderedPlayers[0];
+                    const rightName = orderedPlayers[1];
+                    const left = m.players[leftName];
+                    const right = m.players[rightName];
+                    const leftGoals = left?.goals ?? 0;
+                    const rightGoals = right?.goals ?? 0;
+
                     return (
-                      <div key={p} className={cls("pRow", isWinner && "pWin")}>
-                        <div className="pName">{p}</div>
-                        <div className="pStats">
-                          <span>⚽ {s.goals}</span>
-                          <span>—</span>
-                          <span>┃ {s.crossbars}</span>
-                          <span>—</span>
-                          <span>▮ {s.blackPosts}</span>
+                      <>
+                        <div className="tileTop">
+                          <div className="tileNo">Mecz nr. {m.no}</div>
+                          <div className="tileActions">
+                            {m.winner && (
+                              <div className={cls("pill", "pillOn")}>
+                                Zwycięzca: {m.winner}
+                              </div>
+                            )}
+                            {hostName && (
+                              <div className={cls("pill", "pillOn")}>
+                                Gospodarz: {hostName}
+                              </div>
+                            )}
+                            {isOwner && (
+                              <>
+                                <Link
+                                  className="btnGhost btnSmall"
+                                  href={`/tournaments/${tournamentId}/matches/${m.id}/edit`}
+                                >
+                                  Edytuj
+                                </Link>
+                                <button
+                                  type="button"
+                                  className="btnGhostRed btnSmall"
+                                  onClick={() => deleteMatch(m.id)}
+                                >
+                                  Usuń
+                                </button>
+                              </>
+                            )}
+                          </div>
                         </div>
-                        <div className="pPts">{s.points} pkt</div>
-                      </div>
+
+                        <div className="matchMain">
+                          <div className="matchSide">
+                            <div className="matchName">{leftName}</div>
+                            <div className="matchClub">
+                              {left?.club ? (
+                                <span className="clubLine">
+                                  {clubLogos[left.club] ? (
+                                    <img
+                                      className="clubLogo"
+                                      src={clubLogos[left.club]}
+                                      alt={`${left.club} logo`}
+                                    />
+                                  ) : (
+                                    <span
+                                      className="clubLogoPlaceholder"
+                                      aria-hidden="true"
+                                    />
+                                  )}
+                                  <span>{left.club}</span>
+                                </span>
+                              ) : (
+                                "—"
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="matchScore">
+                            <div className="matchVs">VS</div>
+                            <div className="matchGoals">
+                              {leftGoals}:{rightGoals}
+                            </div>
+                          </div>
+
+                          <div className="matchSide matchSideRight">
+                            <div className="matchName">{rightName}</div>
+                            <div className="matchClub">
+                              {right?.club ? (
+                                <span className="clubLine">
+                                  {clubLogos[right.club] ? (
+                                    <img
+                                      className="clubLogo"
+                                      src={clubLogos[right.club]}
+                                      alt={`${right.club} logo`}
+                                    />
+                                  ) : (
+                                    <span
+                                      className="clubLogoPlaceholder"
+                                      aria-hidden="true"
+                                    />
+                                  )}
+                                  <span>{right.club}</span>
+                                </span>
+                              ) : (
+                                "—"
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="matchStats">
+                          <div className="matchStat matchStatLeft">
+                            <div>(P)‑{left?.crossbars ?? 0}</div>
+                            <div>(Cz.Sł.)‑{left?.blackPosts ?? 0}</div>
+                          </div>
+                          <div className="matchStat matchStatRight">
+                            <div>(P)‑{right?.crossbars ?? 0}</div>
+                            <div>(Cz.Sł.)‑{right?.blackPosts ?? 0}</div>
+                          </div>
+                        </div>
+                        {specialBlock}
+                      </>
                     );
-                  })}
-                </div>
+                  }
+
+                  return (
+                    <>
+                      <div className="tileTop">
+                        <div className="tileNo">Mecz nr. {m.no}</div>
+                        <div className="tileActions">
+                          {m.winner && (
+                            <div className={cls("pill", "pillOn")}>
+                              Zwycięzca: {m.winner}
+                            </div>
+                          )}
+                          {hostName && (
+                            <div className={cls("pill", "pillOn")}>
+                              Gospodarz: {hostName}
+                            </div>
+                          )}
+                          {isOwner && (
+                            <>
+                              <Link
+                                className="btnGhost btnSmall"
+                                href={`/tournaments/${tournamentId}/matches/${m.id}/edit`}
+                              >
+                                Edytuj
+                              </Link>
+                              <button
+                                type="button"
+                                className="btnGhostRed btnSmall"
+                                onClick={() => deleteMatch(m.id)}
+                              >
+                                Usuń
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </div>
+
+                      {specialBlock}
+
+                      <div className="players">
+                        {orderedPlayers.map((p) => {
+                          const s = m.players[p];
+                          const isWinner = m.winner === p;
+                          const multiplier = getPlayerMultiplier(m, p);
+                          const points = calcPoints(s, isWinner, multiplier);
+                          return (
+                            <div
+                              key={p}
+                              className={cls("pRow", isWinner && "pWin")}
+                            >
+                              <div className="pName">{p}</div>
+                              <div className="pStats">
+                                <span>⚽ {s.goals}</span>
+                                <span>—</span>
+                                <span>┃ {s.crossbars}</span>
+                                <span>—</span>
+                                <span>▮ {s.blackPosts}</span>
+                                {s.club && (
+                                  <>
+                                    <span>—</span>
+                                    <span className="clubLine">
+                                      {clubLogos[s.club] ? (
+                                        <img
+                                          className="clubLogo"
+                                          src={clubLogos[s.club]}
+                                          alt={`${s.club} logo`}
+                                        />
+                                      ) : (
+                                        <span
+                                          className="clubLogoPlaceholder"
+                                          aria-hidden="true"
+                                        />
+                                      )}
+                                      <span>{s.club}</span>
+                                    </span>
+                                  </>
+                                )}
+                                {s.host && (
+                                  <span className="pHost">Gospodarz</span>
+                                )}
+                              </div>
+                              <div className="pPts">
+                                {points} pkt
+                                {multiplier > 1 && (
+                                  <span className="pMultiplier">
+                                    {" "}
+                                    x{multiplier}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </>
+                  );
+                })()}
               </div>
             ))}
           </section>
